@@ -6,8 +6,9 @@ import shutil
 import logging
 import requests
 import contextlib
-import cloudscraper
 import lxml.html
+from curl_cffi import requests as curl_requests
+from curl_cffi.requests.exceptions import RequestException as CurlRequestException
 from tqdm import tqdm
 from lxml import etree
 from lxml.html.clean import Cleaner
@@ -33,6 +34,17 @@ logger = logging.getLogger(__name__)
 # 删除js脚本相关的tag，避免网页检测到没有js运行环境时强行跳转，影响调试
 cleaner = Cleaner(kill_tags=['script', 'noscript'])
 
+# CloudFlare 检测标记
+CF_MARKERS = [b'cdn-cgi', b'Just a moment', b'challenge-platform']
+
+# curl_cffi 异常映射
+CURL_EXCEPTION_MAP = {
+    'ConnectionError': requests.exceptions.ConnectionError,
+    'Timeout': requests.exceptions.Timeout,
+    'ProxyError': requests.exceptions.ProxyError,
+    'SSLError': requests.exceptions.SSLError,
+}
+
 def read_proxy():
     if Cfg().network.proxy_server is None:
         return {}
@@ -40,71 +52,126 @@ def read_proxy():
         proxy = str(Cfg().network.proxy_server)
         return {'http': proxy, 'https': proxy}
 
+
+def _convert_proxy(proxies: dict) -> str | None:
+    """将 proxies dict 转换为 curl_cffi proxy string"""
+    if not proxies:
+        return None
+    https_proxy = proxies.get('https')
+    http_proxy = proxies.get('http')
+    if https_proxy and http_proxy and https_proxy != http_proxy:
+        logger.warning("HTTP/HTTPS 代理地址不同，使用 HTTPS 代理")
+    proxy = https_proxy or http_proxy
+    return str(proxy) if proxy else None
+
+
+def _check_cf_challenge(resp) -> None:
+    """检测 CloudFlare 挑战页面，检测到则抛出 SiteBlocked"""
+    if resp.status_code in (403, 503):
+        content = resp.content[:4096]
+        if any(marker in content for marker in CF_MARKERS):
+            raise SiteBlocked(f"CloudFlare challenge detected: {resp.url}")
+
+
+def _convert_curl_exception(exc: Exception) -> Exception:
+    """将 curl_cffi 异常转换为 requests 异常，保留 __cause__"""
+    exc_name = type(exc).__name__
+    target_cls = CURL_EXCEPTION_MAP.get(exc_name, requests.exceptions.RequestException)
+    new_exc = target_cls(str(exc))
+    new_exc.__cause__ = exc
+    return new_exc
+
 # 与网络请求相关的功能汇总到一个模块中以方便处理，但是不同站点的抓取器又有自己的需求（针对不同网站
 # 需要使用不同的UA、语言等）。每次都传递参数很麻烦，而且会面临函数参数越加越多的问题。因此添加这个
 # 处理网络请求的类，它带有默认的属性，但是也可以在各个抓取器模块里进行进行定制
 class Request():
-    """作为网络请求出口并支持各个模块定制功能"""
+    """作为网络请求出口并支持各个模块定制功能
+
+    警告：Request 实例非线程安全，不应在多线程间共享。
+    """
     def __init__(self, use_scraper=False) -> None:
-        # 必须使用copy()，否则各个模块对headers的修改都将会指向本模块中定义的headers变量，导致只有最后一个对headers的修改生效
         self.headers = headers.copy()
         self.cookies = {}
-
         self.proxies = read_proxy()
         self.timeout = Cfg().network.timeout.total_seconds()
-        if not use_scraper:
-            self.scraper = None
-            self.__get = requests.get
-            self.__post = requests.post
-            self.__head = requests.head
+        self._use_scraper = use_scraper
+        if use_scraper:
+            self._session = curl_requests.Session()
         else:
-            self.scraper = cloudscraper.create_scraper()
-            self.__get = self._scraper_monitor(self.scraper.get)
-            self.__post = self._scraper_monitor(self.scraper.post)
-            self.__head = self._scraper_monitor(self.scraper.head)
+            self._session = None
 
-    def _scraper_monitor(self, func):
-        """监控cloudscraper的工作状态，遇到不支持的Challenge时尝试退回常规的requests请求"""
-        def wrapper(*args, **kw):
-            try:
-                return func(*args, **kw)
-            except Exception as e:
-                logger.debug(f"无法通过CloudFlare检测: '{e}', 尝试退回常规的requests请求")
-                if func == self.scraper.get:
-                    return requests.get(*args, **kw)
-                else:
-                    return requests.post(*args, **kw)
-        return wrapper
+    def _curl_request(self, method: str, url: str, **kwargs):
+        """使用 curl_cffi 发起请求"""
+        req_headers = self.headers.copy()
+        req_headers.pop('User-Agent', None)
+        proxy = _convert_proxy(self.proxies)
+        try:
+            resp = self._session.request(
+                method,
+                url,
+                headers=req_headers,
+                cookies=self.cookies,
+                proxy=proxy,
+                timeout=self.timeout,
+                impersonate="chrome",
+                allow_redirects=True,
+                **kwargs,
+            )
+        except CurlRequestException as e:
+            raise _convert_curl_exception(e) from e
+        _check_cf_challenge(resp)
+        if resp.redirect_count > 0:
+            stub = type('StubResponse', (), {'status_code': 302, 'url': url})()
+            resp.history = [stub]
+        else:
+            resp.history = []
+        return resp
+
+    def _raise_for_status(self, r):
+        """调用 raise_for_status，转换 curl_cffi 异常为 requests 异常"""
+        try:
+            r.raise_for_status()
+        except CurlRequestException as e:
+            raise _convert_curl_exception(e) from e
 
     def get(self, url, delay_raise=False):
-        r = self.__get(url,
-                      headers=self.headers,
-                      proxies=self.proxies,
-                      cookies=self.cookies,
-                      timeout=self.timeout)
+        if self._use_scraper:
+            r = self._curl_request('GET', url)
+        else:
+            r = requests.get(url,
+                             headers=self.headers,
+                             proxies=self.proxies,
+                             cookies=self.cookies,
+                             timeout=self.timeout)
         if not delay_raise:
-            r.raise_for_status()
+            self._raise_for_status(r)
         return r
 
     def post(self, url, data, delay_raise=False):
-        r = self.__post(url,
-                      data=data,
-                      headers=self.headers,
-                      proxies=self.proxies,
-                      cookies=self.cookies,
-                      timeout=self.timeout)
+        if self._use_scraper:
+            r = self._curl_request('POST', url, data=data)
+        else:
+            r = requests.post(url,
+                              data=data,
+                              headers=self.headers,
+                              proxies=self.proxies,
+                              cookies=self.cookies,
+                              timeout=self.timeout)
         if not delay_raise:
-            r.raise_for_status()
+            self._raise_for_status(r)
         return r
 
     def head(self, url, delay_raise=True):
-        r = self.__head(url,
-                      headers=self.headers,
-                      proxies=self.proxies,
-                      cookies=self.cookies,
-                      timeout=self.timeout)
+        if self._use_scraper:
+            r = self._curl_request('HEAD', url)
+        else:
+            r = requests.head(url,
+                              headers=self.headers,
+                              proxies=self.proxies,
+                              cookies=self.cookies,
+                              timeout=self.timeout)
         if not delay_raise:
-            r.raise_for_status()
+            self._raise_for_status(r)
         return r
 
     def get_html(self, url):
@@ -148,7 +215,7 @@ def get_resp_text(resp: Response, encoding=None):
     """提取Response的文本"""
     if encoding:
         resp.encoding = encoding
-    else:
+    elif hasattr(resp, 'apparent_encoding') and resp.apparent_encoding:
         resp.encoding = resp.apparent_encoding
     return resp.text
 
