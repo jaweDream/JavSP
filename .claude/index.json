@@ -1,0 +1,183 @@
+{
+  "timestamp": "2026-02-04T14:40:05",
+  "version": "1.0.0",
+  "project": {
+    "name": "JavSP",
+    "description": "汇总多站点数据的 AV 元数据刮削器",
+    "language": "Python",
+    "python_version": ">=3.10,<3.13"
+  },
+  "scan_stats": {
+    "total_files_estimated": 125,
+    "files_scanned": 45,
+    "coverage_percent": 36,
+    "scan_date": "2026-02-04T14:40:05",
+    "truncated": false
+  },
+  "modules": [
+    {
+      "path": "javsp/",
+      "name": "javsp",
+      "type": "core",
+      "description": "核心业务逻辑模块",
+      "entry_point": "__main__.py:entry",
+      "files_count": 39,
+      "has_tests": true,
+      "has_docs": true,
+      "key_files": [
+        "__main__.py",
+        "config.py",
+        "datatype.py",
+        "avid.py",
+        "file.py",
+        "nfo.py"
+      ]
+    },
+    {
+      "path": "javsp/web/",
+      "name": "web",
+      "type": "submodule",
+      "description": "网站爬虫模块",
+      "parent": "javsp",
+      "files_count": 21,
+      "has_tests": true,
+      "has_docs": true,
+      "key_files": [
+        "base.py",
+        "exceptions.py",
+        "translate.py",
+        "javbus.py",
+        "javdb.py",
+        "fanza.py"
+      ],
+      "interfaces": [
+        "parse_data(movie: MovieInfo)",
+        "parse_clean_data(movie: MovieInfo)"
+      ]
+    },
+    {
+      "path": "javsp/cropper/",
+      "name": "cropper",
+      "type": "submodule",
+      "description": "封面裁剪模块",
+      "parent": "javsp",
+      "files_count": 4,
+      "has_tests": false,
+      "has_docs": true,
+      "key_files": [
+        "__init__.py",
+        "interface.py",
+        "slimeface_crop.py"
+      ],
+      "interfaces": [
+        "get_cropper(engine) -> Cropper",
+        "Cropper.crop(fanart, ratio) -> Image"
+      ]
+    },
+    {
+      "path": "unittest/",
+      "name": "unittest",
+      "type": "test",
+      "description": "单元测试",
+      "files_count": 7,
+      "test_data_count": 80,
+      "key_files": [
+        "conftest.py",
+        "test_avid.py",
+        "test_crawlers.py",
+        "test_file.py"
+      ]
+    },
+    {
+      "path": "tools/",
+      "name": "tools",
+      "type": "utility",
+      "description": "辅助工具脚本",
+      "files_count": 5,
+      "key_files": [
+        "call_crawler.py",
+        "check_genre.py",
+        "config_migration.py"
+      ]
+    },
+    {
+      "path": "data/",
+      "name": "data",
+      "type": "static",
+      "description": "静态数据文件",
+      "files_count": 5,
+      "key_files": [
+        "actress_alias.json",
+        "genre_javbus.csv",
+        "genre_javdb.csv",
+        "genre_javlib.csv",
+        "genre_avsox.csv"
+      ]
+    }
+  ],
+  "crawlers": [
+    {"id": "airav", "site": "AIRav", "types": ["normal"], "has_preview": true},
+    {"id": "arzon", "site": "Arzon", "types": ["normal"], "requires_cookies": true},
+    {"id": "arzon_iv", "site": "Arzon IV", "types": ["normal"]},
+    {"id": "avsox", "site": "AVSOX", "types": ["normal", "fc2"]},
+    {"id": "avwiki", "site": "AVWiki", "types": ["normal"]},
+    {"id": "dl_getchu", "site": "DL.Getchu", "types": ["getchu"]},
+    {"id": "fanza", "site": "DMM/FANZA", "types": ["cid"]},
+    {"id": "fc2", "site": "FC2 Official", "types": ["fc2"]},
+    {"id": "fc2fan", "site": "FC2Fan", "types": ["fc2"], "status": "closed"},
+    {"id": "fc2ppvdb", "site": "FC2PPVDB", "types": ["fc2"]},
+    {"id": "gyutto", "site": "Gyutto", "types": ["gyutto"]},
+    {"id": "jav321", "site": "JAV321", "types": ["normal"]},
+    {"id": "javbus", "site": "JavBus", "types": ["normal"], "has_actress_pics": true},
+    {"id": "javdb", "site": "JavDB", "types": ["normal", "fc2"], "has_score": true},
+    {"id": "javlib", "site": "JavLibrary", "types": ["normal"], "has_score": true},
+    {"id": "javmenu", "site": "JavMenu", "types": ["fc2"]},
+    {"id": "mgstage", "site": "MGStage", "types": ["normal"]},
+    {"id": "njav", "site": "NJav", "types": ["normal"]},
+    {"id": "prestige", "site": "Prestige", "types": ["normal"]}
+  ],
+  "avid_types": [
+    {"type": "normal", "example": "ABC-123, IPX-177", "crawlers": ["airav", "avsox", "javbus", "javdb", "javlib", "jav321", "mgstage", "prestige"]},
+    {"type": "fc2", "example": "FC2-1234567", "crawlers": ["fc2", "avsox", "javdb", "javmenu", "fc2ppvdb"]},
+    {"type": "cid", "example": "sqte00300, h_123abc456", "crawlers": ["fanza"]},
+    {"type": "getchu", "example": "GETCHU-4016932", "crawlers": ["dl_getchu"]},
+    {"type": "gyutto", "example": "GYUTTO-242158", "crawlers": ["gyutto"]}
+  ],
+  "config_sections": [
+    {"name": "scanner", "description": "扫描选项（文件过滤、忽略规则）"},
+    {"name": "network", "description": "网络选项（代理、超时、重试）"},
+    {"name": "crawler", "description": "爬虫选项（爬虫列表、必需字段）"},
+    {"name": "summarizer", "description": "整理选项（路径模板、NFO配置、封面裁剪）"},
+    {"name": "translator", "description": "翻译选项（翻译引擎、翻译字段）"},
+    {"name": "other", "description": "其他选项（交互模式、更新检查）"}
+  ],
+  "documents_generated": [
+    {"path": "CLAUDE.md", "type": "root", "status": "updated"},
+    {"path": "javsp/web/CLAUDE.md", "type": "module", "status": "created"},
+    {"path": "javsp/cropper/CLAUDE.md", "type": "module", "status": "created"}
+  ],
+  "coverage_gaps": [
+    {"module": "javsp/", "missing": [], "status": "complete"},
+    {"module": "javsp/web/", "missing": [], "status": "complete"},
+    {"module": "javsp/cropper/", "missing": ["unit tests"], "status": "partial"},
+    {"module": "unittest/", "missing": [], "status": "complete"},
+    {"module": "tools/", "missing": ["documentation"], "status": "partial"}
+  ],
+  "ignored_paths": [
+    ".git/**",
+    "__pycache__/**",
+    "*.pyc",
+    ".idea/**",
+    ".vscode/**",
+    "build/**",
+    "dist/**",
+    "*.egg-info/**",
+    "poetry.lock",
+    "uv.lock"
+  ],
+  "next_steps": [
+    "为 tools/ 目录添加模块级 CLAUDE.md",
+    "为 javsp/cropper/ 添加单元测试",
+    "考虑为常用爬虫添加更详细的开发文档"
+  ]
+}
