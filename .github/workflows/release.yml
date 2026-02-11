@@ -21,7 +21,7 @@ jobs:
           - os: windows-latest
             archive_cmd: 7z a -tzip
             archive_ext: zip
-          - os: macos-13
+          - os: macos-latest
             archive_cmd: tar czf
             archive_ext: tar.gz
 
