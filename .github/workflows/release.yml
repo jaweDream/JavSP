@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            archive_cmd: tar czf
+            archive_ext: tar.gz
+          - os: windows-latest
+            archive_cmd: 7z a -tzip
+            archive_ext: zip
+          - os: macos-13
+            archive_cmd: tar czf
+            archive_ext: tar.gz
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'true'
+
+      - name: Fetch tags
+        run: git fetch --prune --unshallow --tags
+
+      - name: Install poetry
+        run: pipx install poetry
+
+      - name: Setup Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'poetry'
+
+      - name: Setup dynamic versioning
+        run: poetry self add poetry-dynamic-versioning
+
+      - name: Install dependencies
+        run: poetry install
+
+      - name: Build with cx_Freeze
+        run: poetry run python setup.py build_exe -b dist
+
+      - name: Get version
+        shell: bash
+        run: echo "VERSION=$(poetry run python tools/version.py)" >> $GITHUB_ENV
+
+      - name: Package archive
+        shell: bash
+        run: |
+          ARCHIVE_NAME="JavSP-${{ env.VERSION }}-${{ matrix.os }}.${{ matrix.archive_ext }}"
+          echo "ARCHIVE_NAME=$ARCHIVE_NAME" >> $GITHUB_ENV
+          ${{ matrix.archive_cmd }} "$ARCHIVE_NAME" dist
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARCHIVE_NAME }}
+          path: ${{ env.ARCHIVE_NAME }}
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -R artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: artifacts/*
