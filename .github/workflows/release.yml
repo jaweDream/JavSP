@@ -46,7 +46,9 @@ jobs:
         run: poetry self add poetry-dynamic-versioning
 
       - name: Install dependencies
-        run: poetry install
+        run: |
+          poetry lock --no-update
+          poetry install
 
       - name: Build with cx_Freeze
         run: poetry run python setup.py build_exe -b dist
